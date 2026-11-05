@@ -14,11 +14,14 @@ data class MediaEntry(
     val name: String,
     val kind: Kind,
     val nameDate: NameDate,
+    val folder: String,
     val metaDate: LocalDateTime?,
     val status: Status,
     /** true si se puede escribir el metadato dentro del fichero (si no, solo se actualiza la galería) */
     val canWriteFile: Boolean,
 )
+
+data class FolderInfo(val path: String, val count: Int)
 
 object ExifDates {
     val fmt: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")

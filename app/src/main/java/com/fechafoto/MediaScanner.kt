@@ -19,18 +19,24 @@ import kotlin.math.abs
 class MediaScanner(private val ctx: Context) {
     private val cr = ctx.contentResolver
 
-    private data class Candidate(val uri: Uri, val name: String, val mime: String, val kind: Kind, val nameDate: NameDate)
+    private data class Candidate(val uri: Uri, val name: String, val mime: String, val kind: Kind, val nameDate: NameDate, val folder: String)
 
-    suspend fun scan(onProgress: (done: Int, total: Int) -> Unit): List<MediaEntry> =
+    suspend fun listFolders(): List<FolderInfo> = withContext(Dispatchers.IO) {
+        (query(Kind.PHOTO) + query(Kind.VIDEO)).groupingBy { it.folder }.eachCount()
+            .map { FolderInfo(it.key, it.value) }.sortedBy { it.path.lowercase() }
+    }
+
+    /** folders = null analiza todo; si no, solo las carpetas (RELATIVE_PATH) indicadas. */
+    suspend fun scan(folders: Set<String>?, onProgress: (done: Int, total: Int) -> Unit): List<MediaEntry> =
         withContext(Dispatchers.IO) {
-            val candidates = query(Kind.PHOTO) + query(Kind.VIDEO)
+            val candidates = (query(Kind.PHOTO) + query(Kind.VIDEO)).filter { folders == null || it.folder in folders }
             val out = ArrayList<MediaEntry>(candidates.size)
             candidates.forEachIndexed { i, c ->
                 ensureActive()
                 onProgress(i, candidates.size)
                 val meta = if (c.kind == Kind.PHOTO) photoDate(c.uri) else videoDate(c.uri)
                 out += MediaEntry(
-                    uri = c.uri, name = c.name, kind = c.kind, nameDate = c.nameDate,
+                    uri = c.uri, name = c.name, kind = c.kind, nameDate = c.nameDate, folder = c.folder,
                     metaDate = meta, status = status(c.nameDate, meta),
                     canWriteFile = canWrite(c.kind, c.mime),
                 )
@@ -46,13 +52,13 @@ class MediaScanner(private val ctx: Context) {
         val out = mutableListOf<Candidate>()
         cr.query(
             coll,
-            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE),
+            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE, MediaStore.MediaColumns.RELATIVE_PATH),
             null, null, "${MediaStore.MediaColumns.DATE_ADDED} DESC"
         )?.use { c ->
             while (c.moveToNext()) {
                 val name = c.getString(1) ?: continue
                 val nd = NameDateParser.parse(name) ?: continue   // sin fecha en el nombre: se ignora
-                out += Candidate(ContentUris.withAppendedId(coll, c.getLong(0)), name, c.getString(2) ?: "", kind, nd)
+                out += Candidate(ContentUris.withAppendedId(coll, c.getLong(0)), name, c.getString(2) ?: "", kind, nd, c.getString(3) ?: "")
             }
         }
         return out

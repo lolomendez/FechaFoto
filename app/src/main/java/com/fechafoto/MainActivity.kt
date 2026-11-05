@@ -9,11 +9,13 @@ import android.util.Size
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,8 +37,22 @@ import java.time.format.DateTimeFormatter
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { App() } }
+        enableEdgeToEdge()
+        setContent { FechaFotoTheme { Surface(Modifier.fillMaxSize()) { App() } } }
     }
+}
+
+/** Sigue el modo noche del sistema; en Android 12+ usa los colores dinámicos del fondo de pantalla. */
+@Composable
+fun FechaFotoTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val ctx = LocalContext.current
+    val colors = when {
+        Build.VERSION.SDK_INT >= 31 -> if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+        dark -> darkColorScheme()
+        else -> lightColorScheme()
+    }
+    MaterialTheme(colorScheme = colors, content = content)
 }
 
 private val shown = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")
@@ -54,7 +70,7 @@ fun App(vm: MainViewModel = viewModel()) {
     else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
-        if (r.values.all { it }) vm.scan() else vm.message = "Hace falta permiso para leer fotos y vídeos."
+        if (r.values.all { it }) vm.openFolders() else vm.message = "Hace falta permiso para leer fotos y vídeos."
     }
     val writeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         vm.onWriteResult(it.resultCode == Activity.RESULT_OK)
@@ -66,6 +82,37 @@ fun App(vm: MainViewModel = viewModel()) {
 
     val counts = vm.entries.groupingBy { it.status }.eachCount()
     val visible = vm.entries.filter { vm.filter == null || it.status == vm.filter }
+
+    if (vm.showFolders) AlertDialog(
+        onDismissRequest = { vm.showFolders = false },
+        title = { Text("Carpetas a analizar") },
+        text = {
+            if (vm.loadingFolders) CircularProgressIndicator() else Column {
+                Row {
+                    TextButton(onClick = { vm.setAllFolders(true) }) { Text("Todas") }
+                    TextButton(onClick = { vm.setAllFolders(false) }) { Text("Ninguna") }
+                }
+                LazyColumn(Modifier.heightIn(max = 380.dp)) {
+                    items(vm.folders, key = { it.path }) { f ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { vm.toggleFolder(f.path) },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(checked = f.path in vm.folderSelection, onCheckedChange = { vm.toggleFolder(f.path) })
+                            Column {
+                                Text(f.path.ifEmpty { "(raíz)" }, style = MaterialTheme.typography.bodyMedium)
+                                Text("${f.count} con fecha en el nombre", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { vm.scan() }, enabled = !vm.loadingFolders && vm.folderSelection.isNotEmpty()) { Text("Analizar") }
+        },
+        dismissButton = { TextButton(onClick = { vm.showFolders = false }) { Text("Cancelar") } }
+    )
 
     Scaffold(
         bottomBar = {
@@ -87,7 +134,7 @@ fun App(vm: MainViewModel = viewModel()) {
     ) { pad ->
         Column(Modifier.padding(pad).padding(horizontal = 12.dp)) {
             Button(onClick = { permLauncher.launch(perms) }, enabled = !vm.scanning, modifier = Modifier.fillMaxWidth()) {
-                Text(if (vm.scanning) "Analizando…" else "Analizar fotos y vídeos")
+                Text(if (vm.scanning) "Analizando…" else "Elegir carpetas y analizar")
             }
             if (vm.scanning) {
                 val (d, t) = vm.progress
@@ -124,6 +171,7 @@ fun App(vm: MainViewModel = viewModel()) {
                                 style = MaterialTheme.typography.bodySmall
                             )
                             Text("Metadatos: ${e.metaDate?.format(shown) ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                            Text(e.folder, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
                                 e.status.label() + if (!e.canWriteFile) " · solo galería" else "",
                                 style = MaterialTheme.typography.labelSmall
@@ -144,7 +192,7 @@ private fun Thumb(e: MediaEntry) {
             runCatching { ctx.contentResolver.loadThumbnail(e.uri, Size(128, 128), null).asImageBitmap() }.getOrNull()
         }
     }
-    Box(Modifier.size(56.dp).background(Color.LightGray)) {
+    Box(Modifier.size(56.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
         bmp?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
     }
 }

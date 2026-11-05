@@ -29,15 +29,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var message by mutableStateOf<String?>(null)
     var undoBatches by mutableIntStateOf(store.count()); private set
 
+    var folders by mutableStateOf<List<FolderInfo>>(emptyList()); private set
+    var folderSelection by mutableStateOf<Set<String>>(emptySet()); private set
+    var showFolders by mutableStateOf(false)
+    var loadingFolders by mutableStateOf(false); private set
+
     private var scanJob: Job? = null
     private var pendingFix: List<MediaEntry>? = null
     private var pendingUndo: List<Backup>? = null
 
+    fun openFolders() {
+        showFolders = true
+        viewModelScope.launch {
+            loadingFolders = true
+            folders = scanner.listFolders()
+            val all = folders.map { it.path }.toSet()
+            folderSelection = if (folderSelection.isEmpty()) all else folderSelection intersect all
+            loadingFolders = false
+        }
+    }
+
+    fun toggleFolder(p: String) { folderSelection = if (p in folderSelection) folderSelection - p else folderSelection + p }
+    fun setAllFolders(all: Boolean) { folderSelection = if (all) folders.map { it.path }.toSet() else emptySet() }
+
     fun scan() {
+        showFolders = false
         scanJob?.cancel()
         scanJob = viewModelScope.launch {
             scanning = true; message = null; selected = emptySet()
-            entries = scanner.scan { d, t -> progress = d to t }
+            entries = scanner.scan(folderSelection.takeIf { it.isNotEmpty() }) { d, t -> progress = d to t }
             scanning = false
             if (entries.isEmpty()) message = "No hay fotos ni vídeos con fecha en el nombre."
         }

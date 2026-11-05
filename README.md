@@ -18,6 +18,9 @@ Analizar > filtrar por ⚠️/❌ > marcar > "Regenerar fecha desde el nombre". 
 - Los vídeos guardan la fecha en UTC; la app la convierte a hora local para comparar.
 - Tolerancia de coincidencia con hora: ±2 min.
 
+## Descargar el APK
+Cada compilación se publica en la pestaña **Releases** del repositorio (github.com/<usuario>/FechaFoto/releases) como `app-debug.apk`, descarga directa sin zip.
+
 ## Sin Android Studio: compilar en GitHub
 1. Crea un repositorio privado en github.com y sube todo el contenido de esta carpeta (incluida `.github`).
 2. Pestaña Actions > "Build APK" > espera ~5 min.
